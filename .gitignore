@@ -1,0 +1,22 @@
+# Entwicklungsumgebung
+.vscode/
+
+# Chroma-Datenbank (lokale Persistenz)
+chroma_db/
+
+# Lokale Dokumente (PDFs, Texte etc.)
+docs/
+
+# Python-Standardausschlüsse
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+.env
+venv/
+.venv/
+
+# Systemdateien
+.DS_Store
+Thumbs.db
