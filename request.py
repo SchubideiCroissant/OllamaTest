@@ -16,7 +16,9 @@ from chromadb.config import Settings
 from PyPDF2 import PdfReader
 import ollama
 import json
+import re
 from tool_registry import TOOLS, format_output, generate_tool_descriptions
+
 
 # ------------------------------
 # EINSTELLUNGEN
@@ -200,6 +202,14 @@ def ask(question: str):
     print("Rag-Mode")
     return ask_rag(question)
 
+def extract_json(text: str):
+    """Versucht, eingebettetes JSON aus einem Text zu extrahieren."""
+    match = re.search(r'\{[\s\S]*\}', text)
+    if match:
+        return match.group(0)
+    print("kein Json gefunden")
+    return None
+
 def ask_with_tools(question: str):
     """Verarbeitet Fragen, die Tools (z. B. GitHub) benötigen."""
     tool_descriptions = generate_tool_descriptions(TOOLS)
@@ -209,8 +219,8 @@ def ask_with_tools(question: str):
                         Verfügbare Tools:
                         {tool_descriptions}
 
-                        "enn du erkennst, dass eine der Funktionen gemeint ist(auch bei Tippfehlern oder ähnlichen Formulierungen),
-                        antworte **nur** mit JSON im Format:
+                        "Wenn du erkennst, dass eine der Funktionen gemeint ist(auch bei Tippfehlern oder ähnlichen Formulierungen),
+                        fordere die Ausführung eines Tools im JSON-Format an:
                         {{
                         "action": "<Funktionsname>",
                         "arguments": {{ "<parameter>": "<wert>", ... }}
@@ -218,21 +228,25 @@ def ask_with_tools(question: str):
                         Beispiele:
                         - Für `get_repo_stats`: {{"repo_name": "repo_name"}}
                         - Für `list_user_repos`: {{"username": "user"}}
+                        Nach Ausführung des Tools bekommst du das Ergebnis als Text zurück
+                        und sollst daraus eine verständliche, hilfreiche Antwort auf Deutsch formulieren.
                         Wenn keine dieser Funktionen nötig ist, gib normalen Text zurück.
                         """
 
-    response = ollama.chat(
-        model=MODEL_NAME,
-        messages=[
+    messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": question}
         ]
+    # Modell wählt Tool-Funktion aus
+    response = ollama.chat(
+        model=MODEL_NAME,
+        messages=messages
     )
-
     content = response["message"]["content"].strip()
+    
 
     try:
-        data = json.loads(content)
+        data = json.loads(extract_json(content))
         action = data.get("action")
         args = data.get("arguments", {})
 
@@ -241,14 +255,23 @@ def ask_with_tools(question: str):
             print(f"\n[Tool-Auswahl] Modell ruft auf: {action} mit Argumenten: {args}\n")
             result = func(**args)
             print("\n--- Ergebnis (Tool) ---\n")
-            print(format_output(result))
+            result_text = format_output(result)
+            print(result_text)
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "system", "content": f"Tool-Ergebnis:\n{result_text}"})
+            messages.append({"role": "user", "content": "Bitte beantworte jetzt die ursprüngliche Frage basierend auf dem Ergebnis."})
+
+            # Modell antwortet auf Grundlage des Tool-Outputs
+            final = ollama.chat(model=MODEL_NAME, messages=messages)
+            print("\n--- Antwort (nach Tool-Call) ---\n")
+            print(final["message"]["content"])
             return
 
         else:
             print(f"Unbekannte Aktion: {action}")
 
     except json.JSONDecodeError:
-        print("\n--- Antwort (Text) ---\n")
+        print("\n JSON Fehler ---\n")
         print(content)
 
     print("\n--- Antwort (Text) ---\n")
@@ -322,7 +345,7 @@ def ask_rag(question: str):
         print(textwrap.fill(buf, width=term_width))
 
 if __name__ == "__main__":
-    print("Standard Rag or Tool-Use mit: repo, github, commit, issue, fork, sterne, pull request")
+    print("Standard Rag oderr Tool-Use mit: repo, github, commit, issue, fork, sterne, pull request")
     print("Erstelle bzw. lade Datenbank...")
     index_files()
     #show_chunks()
