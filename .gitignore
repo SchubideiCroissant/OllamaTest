@@ -6,6 +6,7 @@ chroma_db/
 
 # Lokale Dokumente (PDFs, Texte etc.)
 docs/
+code/
 
 # Python-Standardausschlüsse
 __pycache__/

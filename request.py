@@ -21,7 +21,7 @@ import ollama
 # ------------------------------
 PERSIST_DIR = Path("F:/Code/OllamaTest/chroma_db") # Speicherort der Datenbank
 PDF_DIR = "F:/Code/OllamaTest/docs"                 # Ordner für PDFs
-CODE_DIR = "F:/Code/OllamaTest/src"                 # Ordner für Code-Dateien
+CODE_DIR = "F:/Code/OllamaTest/code"                 # Ordner für Code-Dateien
 MODEL_NAME = "llama3"                               # Ollama-Modell, Ilama für GPU Unterstützung
 
 # ------------------------------
@@ -140,7 +140,7 @@ def index_files(chunk_size=500, overlap=100):
     else:
         print("Keine Dateien gefunden.")
 
-def show_chunks(limit=100):
+def show_chunks(limit = 1000):
     """Zeigt gespeicherte Chunks in der Chroma-Datenbank (mit Metadaten und Vorschau)."""
     print("\n=== Gespeicherte Chunks ===")
     try:
@@ -201,7 +201,7 @@ def ask(question):
 
     prompt = (
     "Nutze ausschließlich die folgenden Informationen, um die Frage zu beantworten.\n"
-    "Wenn die Antwort nicht im Kontext steht, sage: 'Nicht genügend Informationen vorhanden.'\n\n"
+    "Wenn du im Kontext keine direkte Antwort findest, gib eine plausible Zusammenfassung der gefundenen Inhalte wieder.'\n\n"
     f"--- KONTEXT START ---\n{context}\n--- KONTEXT ENDE ---\n\n"
     f"FRAGE: {question}"
 )
