@@ -8,6 +8,7 @@
 #   - Beantwortet Fragen über Model (Ollama)
 # ================================
 
+import textwrap, shutil
 from pathlib import Path
 import os
 from chromadb import PersistentClient
@@ -117,7 +118,7 @@ def ask(question):
         "Antworte ausschließlich auf Deutsch."
         "Verwende ausschließlich Informationen aus dem gegebenen Kontext."
     )
-    print("\n--- Model antwortet ---\n")
+    
 
     """
                            options={
@@ -125,6 +126,9 @@ def ask(question):
                                 "temperature": 0.3
                             },    
     """  
+    term_width = shutil.get_terminal_size((100, 20)).columns
+    buf = ""
+    print("\n--- Antwort ---\n")
     # Ausgabe erfolgt Stück für Stück
     for chunk in ollama.chat(
         model=MODEL_NAME,
@@ -134,7 +138,17 @@ def ask(question):
         ],
         stream=True
     ):
-        print(chunk["message"]["content"], end="", flush=True) # Changed to flush for shorter waiting times
+        buf += chunk["message"]["content"]
+        # sobald genug Text oder ein Zeilenumbruch da ist → formatiert ausgeben
+        if len(buf) > 400 or "\n" in buf:
+            parts = buf.split("\n")
+            for line in parts[:-1]:
+                print(textwrap.fill(line, width=term_width))
+            buf = parts[-1]  # Rest im Puffer lassen
+
+# Rest flushen
+    if buf:
+        print(textwrap.fill(buf, width=term_width))
 
 if __name__ == "__main__":
     print("=== Lokale Knowledge Base ===")
