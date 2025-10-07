@@ -32,93 +32,115 @@ collection = client.get_or_create_collection("local_knowledge")
 print(f"Datenbankpfad: {PERSIST_DIR}")
 print(f"Vorhandene Collections: {client.list_collections()}")
 
-# ------------------------------
-# FUNKTIONEN ZUM DATEIEN LADEN
-# ------------------------------
-def load_pdf_text(pdf_path):
-    """Extrahiert Text aus einer PDF-Datei."""
-    reader = PdfReader(pdf_path)
-    text = ""
-    for page in reader.pages:
+def split_text(text, size=500, overlap=100):
+    """Teilt Text in überlappende Chunks."""
+    text = text.replace("\n", " ").strip()
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + size
+        chunks.append(text[start:end])
+        start += size - overlap
+    return chunks
+
+def process_pdf(file_path, chunk_size, overlap):
+    """Extrahiert Text aus einer PDF und chunkt ihn."""
+    from PyPDF2 import PdfReader
+    docs, ids, metas = [], [], []
+    reader = PdfReader(file_path)
+    filename = os.path.basename(file_path)
+
+    for page_num, page in enumerate(reader.pages, start=1):
         try:
-            text += page.extract_text() or ""
+            text = page.extract_text() or ""
         except Exception:
-            pass
-    return text.strip()
+            text = ""
 
-def load_code_text(folder):
-    """Liest Code-Dateien (C, C++, H, PY) rekursiv ein."""
-    text_data = []
-    for root, _, files in os.walk(folder):
-        for file in files:
-            if file.endswith((".c", ".cpp", ".h", ".py")):
-                path = os.path.join(root, file)
-                try:
-                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                        text_data.append(f.read())
-                except Exception:
-                    pass
-    return "\n".join(text_data)
+        if text.strip():
+            page_chunks = split_text(text, chunk_size, overlap)
+            for j, chunk in enumerate(page_chunks):
+                docs.append(chunk)
+                ids.append(f"pdf_{filename}_p{page_num}_c{j}")
+                metas.append({
+                    "filename": filename,
+                    "page": page_num,
+                    "chunk": j,
+                    "type": "pdf"
+                })
+    return docs, ids, metas
 
-# ------------------------------
-# INHALTE LADEN UND SPEICHERN
-# ------------------------------
-def index_files():
-    docs = []
-    ids = []
-    metadatas = []
+def process_code(file_path, chunk_size, overlap):
+    """Liest Code-Dateien ein und chunkt sie."""
+    docs, ids, metas = [], [], []
+    filename = os.path.basename(file_path)
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read().strip()
+        if text:
+            chunks = split_text(text, chunk_size, overlap)
+            for j, chunk in enumerate(chunks):
+                docs.append(chunk)
+                ids.append(f"code_{filename}_c{j}")
+                metas.append({
+                    "filename": filename,
+                    "chunk": j,
+                    "type": "code"
+                })
+    except Exception as e:
+        print(f"Fehler beim Laden von {filename}: {e}")
+    return docs, ids, metas
 
-    # PDFs – seitenweises Chunking
+def add_new_documents(collection, docs, ids, metadatas):
+    """Fügt nur neue Dokumente zur Datenbank hinzu."""
+    print(f"{len(docs)} Chunks vorbereitet. Überprüfe bestehende Datenbankeinträge ...")
+
+    existing_data = collection.get()
+    existing_ids = set(existing_data.get("ids", []))
+
+    new_docs, new_ids, new_metas = [], [], []
+    for d, i, m in zip(docs, ids, metadatas):
+        if i not in existing_ids:
+            new_docs.append(d)
+            new_ids.append(i)
+            new_metas.append(m)
+
+    if new_docs:
+        print(f"{len(new_docs)} neue Chunks werden hinzugefügt ...")
+        collection.add(documents=new_docs, ids=new_ids, metadatas=new_metas)
+        print("Datenbank erfolgreich aktualisiert.")
+    else:
+        print("Keine neuen Chunks gefunden.")
+
+def index_files(chunk_size=500, overlap=100):
+    """Liest PDFs und Code-Dateien, chunkt und speichert sie in Chroma."""
+    docs, ids, metadatas = [], [], []
+
+    # PDFs verarbeiten
     if os.path.isdir(PDF_DIR):
         for file in os.listdir(PDF_DIR):
             if file.lower().endswith(".pdf"):
                 path = os.path.join(PDF_DIR, file)
                 print(f"Lade PDF: {file}")
-                reader = PdfReader(path)
+                d, i, m = process_pdf(path, chunk_size, overlap)
+                docs += d; ids += i; metadatas += m
 
-                for i, page in enumerate(reader.pages, start=1):
-                    try:
-                        text = page.extract_text() or ""
-                    except Exception:
-                        text = ""
-
-                    if text.strip():
-                        docs.append(text.strip())
-                        ids.append(f"pdf_{file}_p{i}")
-                        metadatas.append({
-                            "filename": file,
-                            "page": i,
-                            "type": "pdf"
-                        })
-
-    # Code – alles in einem Block, aber mit Metadaten
+    # Code verarbeiten
     if os.path.isdir(CODE_DIR):
         print(f"Lade Code aus {CODE_DIR}")
         for root, _, files in os.walk(CODE_DIR):
             for file in files:
                 if file.endswith((".c", ".cpp", ".h", ".py")):
                     path = os.path.join(root, file)
-                    try:
-                        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-                            text = f.read().strip()
-                        if text:
-                            docs.append(text)
-                            ids.append(f"code_{file}")
-                            metadatas.append({
-                                "filename": file,
-                                "type": "code"
-                            })
-                    except Exception as e:
-                        print(f"Fehler beim Laden von {file}: {e}")
+                    d, i, m = process_code(path, chunk_size, overlap)
+                    docs += d; ids += i; metadatas += m
 
-    # Speichern in Chroma
+    # Neue Dokumente hinzufügen
     if docs:
-        print(f"{len(docs)} Chunks werden hinzugefügt ...")
-        collection.add(documents=docs, ids=ids, metadatas=metadatas)
-        print("Datenbank erfolgreich aktualisiert.")
+        add_new_documents(collection, docs, ids, metadatas)
     else:
-        print("Keine neuen Dateien gefunden.")
-def show_chunks(limit=10):
+        print("Keine Dateien gefunden.")
+
+def show_chunks(limit=100):
     """Zeigt gespeicherte Chunks in der Chroma-Datenbank (mit Metadaten und Vorschau)."""
     print("\n=== Gespeicherte Chunks ===")
     try:
@@ -144,18 +166,37 @@ def show_chunks(limit=10):
     except Exception as e:
         print(f"Fehler beim Laden der Chunks: {e}")
 
-
 # ------------------------------
 # FRAGEN AN MODEL
 # ------------------------------
 def ask(question):
     """Durchsucht die DB und fragt Model."""
-    results = collection.query(query_texts=[question], n_results=3)
-    context = "\n".join([doc for docs in results["documents"] for doc in docs])
+    results = collection.query(
+        query_texts=[question],
+        n_results=6,
+        include=["documents", "metadatas"]
+    )
 
-    if not context:
+    if not results["documents"] or not results["documents"][0]:
         print("Keine passenden Informationen gefunden.")
         return
+
+    # Kontext aus den besten Treffern zusammensetzen
+    context = "\n".join(results["documents"][0])
+
+    # Quellen anzeigen
+    print("\n=== Gefundene Quellen ===")
+    for i, meta in enumerate(results["metadatas"][0]):
+        cid = results["ids"][0][i] if "ids" in results else f"chunk_{i}"
+        info = f"→ {cid}"
+        if meta:
+            if meta.get("filename"):
+                info += f" | Datei: {meta['filename']}"
+            if meta.get("page"):
+                info += f" | Seite: {meta['page']}"
+        print(info)
+    print("==========================\n")
+
 
 
     prompt = (
@@ -166,8 +207,9 @@ def ask(question):
 )
 
     system_content =(
-        f"Du bist ein prägnanter technischer Assistent. "
-        "Antworte immer kurz, klar und ohne Ausschmückungen. "
+        f"Du bist ein technischer Assistent. "
+        "Antworte klar, strukturiert und in vollständigen Sätzen. "
+        "Sei präzise, aber liefere genügend Kontext, um die Antwort verständlich zu machen. "
         "Antworte ausschließlich auf Deutsch."
         "Verwende ausschließlich Informationen aus dem gegebenen Kontext."
     )
