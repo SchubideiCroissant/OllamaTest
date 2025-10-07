@@ -202,13 +202,26 @@ def ask(question: str):
     print("Rag-Mode")
     return ask_rag(question)
 
+import re
+import json
+
 def extract_json(text: str):
-    """Versucht, eingebettetes JSON aus einem Text zu extrahieren."""
+    """Versucht, eingebettetes JSON aus einem Text zu extrahieren.
+    Gibt den JSON-String zurück oder wirft eine Exception, wenn keins gefunden wird."""
     match = re.search(r'\{[\s\S]*\}', text)
-    if match:
-        return match.group(0)
-    print("kein Json gefunden")
-    return None
+    if not match:
+        print("Fehler "+text)
+        raise ValueError("Kein gültiges JSON im Text gefunden.")
+    
+    json_str = match.group(0)
+
+    try:
+        # Prüfen, ob das gefundene JSON tatsächlich gültig ist
+        json.loads(json_str)
+        return json_str
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Ungültiges JSON im Text gefunden: {e}")
+
 
 def ask_with_tools(question: str):
     """Verarbeitet Fragen, die Tools (z. B. GitHub) benötigen."""
@@ -219,8 +232,8 @@ def ask_with_tools(question: str):
                         Verfügbare Tools:
                         {tool_descriptions}
 
-                        "Wenn du erkennst, dass eine der Funktionen gemeint ist(auch bei Tippfehlern oder ähnlichen Formulierungen),
-                        fordere die Ausführung eines Tools im JSON-Format an:
+                        Wenn du erkennst, dass eine der Funktionen gemeint ist(auch bei Tippfehlern oder ähnlichen Formulierungen),
+                        fordere die Ausführung eines Tools außschließlich im JSON-Format an:
                         {{
                         "action": "<Funktionsname>",
                         "arguments": {{ "<parameter>": "<wert>", ... }}
@@ -228,10 +241,10 @@ def ask_with_tools(question: str):
                         Beispiele:
                         - Für `get_repo_stats`: {{"repo_name": "repo_name"}}
                         - Für `list_user_repos`: {{"username": "user"}}
-                        Nach Ausführung des Tools bekommst du das Ergebnis als Text zurück
-                        und sollst daraus eine verständliche, hilfreiche Antwort auf Deutsch formulieren.
-                        Wenn keine dieser Funktionen nötig ist, gib normalen Text zurück.
+                        Antworte nur mit JSON, ohne weiteren Text, Markdown oder Erklärung.
+                        Wenn kein passendes Tool nötig ist, gib normalen Text zurück.
                         """
+    
 
     messages=[
             {"role": "system", "content": system_prompt},
@@ -257,12 +270,28 @@ def ask_with_tools(question: str):
             print("\n--- Ergebnis (Tool) ---\n")
             result_text = format_output(result)
             print(result_text)
-            messages.append({"role": "assistant", "content": content})
-            messages.append({"role": "system", "content": f"Tool-Ergebnis:\n{result_text}"})
-            messages.append({"role": "user", "content": "Bitte beantworte jetzt die ursprüngliche Frage basierend auf dem Ergebnis."})
+
+            answer_prompt = f"""
+                Du bist jetzt im Antwortmodus.
+
+                Nutze das folgende Tool-Ergebnis als Grundlage, um die ursprüngliche Frage zu beantworten.
+                Du darfst die Informationen erläutern, zusammenfassen oder interpretieren,
+                solange sie aus dem Tool-Ergebnis stammen.
+
+                Antworte auf Deutsch in vollständigen, gut lesbaren Sätzen.
+                Wenn es sich um viele Daten handelt, gib eine kurze Übersicht oder ein paar Beispiele,
+                statt alles aufzulisten. Schreibe lieber einen kleinen Absatz als nur einen Satz.
+                --- TOOL-ERGEBNIS ---
+                {result_text}
+                --- ENDE ---
+
+                Frage: {question}
+                """
 
             # Modell antwortet auf Grundlage des Tool-Outputs
-            final = ollama.chat(model=MODEL_NAME, messages=messages)
+            final = ollama.chat(
+                model=MODEL_NAME,
+                messages=[{"role": "system", "content": answer_prompt}])
             print("\n--- Antwort (nach Tool-Call) ---\n")
             print(final["message"]["content"])
             return
