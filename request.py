@@ -15,6 +15,8 @@ from chromadb import PersistentClient
 from chromadb.config import Settings
 from PyPDF2 import PdfReader
 import ollama
+import json
+from tool_registry import TOOLS, format_output, generate_tool_descriptions
 
 # ------------------------------
 # EINSTELLUNGEN
@@ -31,6 +33,7 @@ client = PersistentClient(path=PERSIST_DIR)
 collection = client.get_or_create_collection("local_knowledge")
 print(f"Datenbankpfad: {PERSIST_DIR}")
 print(f"Vorhandene Collections: {client.list_collections()}")
+
 
 def split_text(text, size=500, overlap=100):
     """Teilt Text in überlappende Chunks."""
@@ -176,18 +179,83 @@ def filter_chunks(question):
     elif "code" in q_lower:
         where_filter = {"type": {"$eq": "code"}}
     else:
-        where_filter = {}  # keine Einschränkung → alle durchsuchen
+        where_filter = None  # keine Einschränkung → alle durchsuchen
     
     return where_filter
 # ------------------------------
 # FRAGEN AN MODEL
 # ------------------------------
-def ask(question):
-    """Durchsucht die DB und fragt Model."""
+
+def ask(question: str):
+    """Routet zwischen Tool- und RAG-System je nach Eingabeinhalt."""
+
+    q_lower = question.lower()
+
+    # --- 1. Prüfen, ob Tool-Aufruf sinnvoll ist ---
+    if any(x in q_lower for x in ["repo", "github", "commit", "issue", "fork", "sterne", "pull request"]):
+        return ask_with_tools(question)
+
+    # --- 2. Standard: RAG-System ---
+    return ask_rag(question)
+
+def ask_with_tools(question: str):
+    """Verarbeitet Fragen, die Tools (z. B. GitHub) benötigen."""
+    tool_descriptions = generate_tool_descriptions(TOOLS)
+
+    system_prompt = f"""
+                        Du bist ein KI-Assistent mit Zugriff auf externe Tools.
+                        Verfügbare Tools:
+                        {tool_descriptions}
+
+                        Wenn du eines dieser Tools verwenden möchtest, antworte **nur** mit JSON im Format:
+                        {{
+                        "action": "<Funktionsname>",
+                        "arguments": {{ "<parameter>": "<wert>", ... }}
+                        }}
+                        Beispiele:
+                        - Für `get_repo_stats`: {{"repo_name": "repo_name"}}
+                        - Für `list_user_repos`: {{"username": "user"}}
+                        Wenn keine dieser Funktionen nötig ist, gib normalen Text zurück.
+                        """
+
+    response = ollama.chat(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": question}
+        ]
+    )
+
+    content = response["message"]["content"].strip()
+
+    try:
+        data = json.loads(content)
+        action = data.get("action")
+        args = data.get("arguments", {})
+
+        if action in TOOLS:
+            func = TOOLS[action]["function"]
+            result = func(**args)
+            print("\n--- Ergebnis (Tool) ---\n")
+            print(format_output(result))
+            return
+
+        else:
+            print(f"Unbekannte Aktion: {action}")
+
+    except json.JSONDecodeError:
+        print("\n--- Antwort (Text) ---\n")
+        print(content)
+
+    print("\n--- Antwort (Text) ---\n")
+    print(content)
+
+def ask_rag(question: str):
+    """Durchsucht die lokale Wissensdatenbank (Chroma) und fragt das Modell."""
 
     results = collection.query(
         query_texts=[question],
-        n_results=6,
+        n_results=4,
         where=filter_chunks(question),
         include=["documents", "metadatas"]
     )
@@ -196,10 +264,10 @@ def ask(question):
         print("Keine passenden Informationen gefunden.")
         return
 
-    # Kontext aus den besten Treffern zusammensetzen
+    # Kontext aus besten Treffern
     context = "\n".join(results["documents"][0])
 
-    # Quellen anzeigen
+    # Quellenanzeige
     print("\n=== Gefundene Quellen ===")
     for i, meta in enumerate(results["metadatas"][0]):
         cid = results["ids"][0][i] if "ids" in results else f"chunk_{i}"
@@ -212,63 +280,51 @@ def ask(question):
         print(info)
     print("==========================\n")
 
-
-
     prompt = (
-    "Nutze ausschließlich die folgenden Informationen, um die Frage zu beantworten.\n"
-    "Wenn du im Kontext keine direkte Antwort findest, gib eine plausible Zusammenfassung der gefundenen Inhalte wieder.'\n\n"
-    f"--- KONTEXT START ---\n{context}\n--- KONTEXT ENDE ---\n\n"
-    f"FRAGE: {question}"
-)
+        "Nutze ausschließlich die folgenden Informationen, um die Frage zu beantworten.\n"
+        "Wenn du im Kontext keine direkte Antwort findest, gib eine plausible Zusammenfassung der gefundenen Inhalte wieder.\n\n"
+        f"--- KONTEXT START ---\n{context}\n--- KONTEXT ENDE ---\n\n"
+        f"FRAGE: {question}"
+    )
 
-    system_content =(
-        f"Du bist ein technischer Assistent. "
+    system_content = (
+        "Du bist ein technischer Assistent. "
         "Antworte klar, strukturiert und in vollständigen Sätzen. "
         "Sei präzise, aber liefere genügend Kontext, um die Antwort verständlich zu machen. "
-        "Antworte ausschließlich auf Deutsch."
+        "Antworte ausschließlich auf Deutsch. "
         "Verwende ausschließlich Informationen aus dem gegebenen Kontext."
     )
-    
 
-    """
-                           options={
-                                "num_predict": 300,   
-                                "temperature": 0.3
-                            },    
-    """  
     term_width = shutil.get_terminal_size((100, 20)).columns
     buf = ""
     print("\n--- Antwort ---\n")
-    # Ausgabe erfolgt Stück für Stück
+
     for chunk in ollama.chat(
         model=MODEL_NAME,
         messages=[
-        {"role": "system", "content": system_content},
-        {"role": "user", "content": prompt}
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": prompt}
         ],
         stream=True
     ):
         buf += chunk["message"]["content"]
-        # sobald genug Text oder ein Zeilenumbruch da ist → formatiert ausgeben
         if len(buf) > 400 or "\n" in buf:
             parts = buf.split("\n")
             for line in parts[:-1]:
                 print(textwrap.fill(line, width=term_width))
-            buf = parts[-1]  # Rest im Puffer lassen
+            buf = parts[-1]
 
-# Rest flushen
     if buf:
         print(textwrap.fill(buf, width=term_width))
 
-
 if __name__ == "__main__":
-    print("=== Lokale Knowledge Base ===")
+    print("Standard Rag or Tool-Use mit: repo, github, commit, issue, fork, sterne, pull request")
     print("Erstelle bzw. lade Datenbank...")
     index_files()
-    show_chunks()
+    #show_chunks()
 
     while True:
-        frage = input("\nFrage an deine Knowledge Base ('exit' zum Beenden): ")
+        frage = input("\nFrage('exit' zum Beenden): ")
         if frage.lower() in ("exit", "quit"):
             break
         ask(frage)
