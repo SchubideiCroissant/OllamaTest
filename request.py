@@ -105,12 +105,17 @@ def ask(question):
 
 
     prompt = (
-        f"Kontext:\n{context}\n\nFrage: {question}"
+    "Nutze ausschließlich die folgenden Informationen, um die Frage zu beantworten.\n"
+    "Wenn die Antwort nicht im Kontext steht, sage: 'Nicht genügend Informationen vorhanden.'\n\n"
+    f"--- KONTEXT START ---\n{context}\n--- KONTEXT ENDE ---\n\n"
+    f"FRAGE: {question}"
 )
+
     system_content =(
         f"Du bist ein prägnanter technischer Assistent. "
         "Antworte immer kurz, klar und ohne Ausschmückungen. "
         "Antworte ausschließlich auf Deutsch."
+        "Verwende ausschließlich Informationen aus dem gegebenen Kontext."
     )
     print("\n--- Model antwortet ---\n")
 
@@ -120,6 +125,7 @@ def ask(question):
                                 "temperature": 0.3
                             },    
     """  
+    # Ausgabe erfolgt Stück für Stück
     for chunk in ollama.chat(
         model=MODEL_NAME,
         messages=[
