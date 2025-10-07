@@ -1,4 +1,4 @@
-# Ollama Knowledge Base
+# Ollama combined with RAG and Github API
 ## Ziel
 Lokaler Agent agiert als Wissensdatenbank mit **Chroma** und **Ollama**.  
 Liest automatisch PDFs und Code aus den Ordnern `docs/` und `src/`  
