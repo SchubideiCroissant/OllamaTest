@@ -1,5 +1,5 @@
 import os
-from github import Github
+from github import Github, GithubException
 from dotenv import load_dotenv
 from datetime import datetime
 
@@ -13,72 +13,102 @@ gh = Github(token)
 
 def get_repo_stats(repo_name: str):
     """Liefert allgemeine Informationen zu einem Repository, inklusive Commits."""
-    # Falls kein User Input dann Token-User nehmen
-    if "/" not in repo_name:
-        user = gh.get_user().login
-        repo_name = f"{user}/{repo_name}"
+    try:
+        # Falls kein User-Input, Token-User nutzen
+        if "/" not in repo_name:
+            user = gh.get_user().login
+            repo_name = f"{user}/{repo_name}"
 
-    repo = gh.get_repo(repo_name)
+        repo = gh.get_repo(repo_name)
 
-    # Commits abrufen (kann bei großen Repos dauern!)
-    commits = list(repo.get_commits()[:2])  # nur die letzten 2 laden
-    total_commits = repo.get_commits().totalCount  # Gesamtzahl der Commits
+        commits = list(repo.get_commits()[:2])  # nur die letzten 2
+        total_commits = repo.get_commits().totalCount
 
-    last_commits = []
-    for c in commits:
-        last_commits.append({
-            "nachricht": c.commit.message.split("\n")[0],  # erste Zeile der Nachricht
-            "autor": c.commit.author.name if c.commit.author else "Unbekannt",
-            "datum": c.commit.author.date.strftime("%d.%m.%Y %H:%M:%S") if c.commit.author else "?"
-        })
+        last_commits = []
+        for c in commits:
+            last_commits.append({
+                "nachricht": c.commit.message.split("\n")[0],
+                "autor": c.commit.author.name if c.commit.author else "Unbekannt",
+                "datum": c.commit.author.date.strftime("%d.%m.%Y %H:%M:%S") if c.commit.author else "?"
+            })
 
-    return {
-        "name": repo.full_name,
-        "beschreibung": repo.description,
-        "sterne": repo.stargazers_count,
-        "forks": repo.forks_count,
-        "issues_offen": repo.open_issues_count,
-        "sprache": repo.language,
-        "commits_gesamt": total_commits,
-        "letztes_update": repo.updated_at.strftime("%d.%m.%Y %H:%M:%S"),
-        "letzte_commits": last_commits
-    }
+        return {
+            "name": repo.full_name,
+            "beschreibung": repo.description,
+            "sterne": repo.stargazers_count,
+            "forks": repo.forks_count,
+            "issues_offen": repo.open_issues_count,
+            "sprache": repo.language,
+            "commits_gesamt": total_commits,
+            "letztes_update": repo.updated_at.strftime("%d.%m.%Y %H:%M:%S"),
+            "letzte_commits": last_commits
+        }
+
+    except GithubException as e:
+        return {"fehler": f"GitHub-Fehler: {e.data.get('message', str(e))}"}
+    except Exception as e:
+        return {"fehler": f"Allgemeiner Fehler: {e}"}
 
 
 def get_last_commit(repo_name: str):
     """Gibt die Nachricht und das Datum des letzten Commits zurück."""
-    # Falls kein User Input dann Token-User nehmen
-    if "/" not in repo_name:
-        user = gh.get_user().login
-        repo_name = f"{user}/{repo_name}"
+    try:
+        if "/" not in repo_name:
+            user = gh.get_user().login
+            repo_name = f"{user}/{repo_name}"
 
-    repo = gh.get_repo(repo_name)
-    commit = repo.get_commits()[0]
-    return {
-        "nachricht": commit.commit.message,
-        "autor": commit.commit.author.name,
-        "datum": commit.commit.author.date.strftime("%d.%m.%Y %H:%M:%S")
-    }
+        repo = gh.get_repo(repo_name)
+        commit = repo.get_commits()[0]
+        return {
+            "nachricht": commit.commit.message,
+            "autor": commit.commit.author.name,
+            "datum": commit.commit.author.date.strftime("%d.%m.%Y %H:%M:%S")
+        }
+
+    except GithubException as e:
+        return {"fehler": f"GitHub-Fehler: {e.data.get('message', str(e))}"}
+    except Exception as e:
+        return {"fehler": f"Allgemeiner Fehler: {e}"}
+
 
 def list_open_issues(repo_name: str):
-    """Listet offene Issues auf."""
-    repo = gh.get_repo(repo_name)
-    issues = repo.get_issues(state="open")
-    return [{"titel": i.title, "erstellt_von": i.user.login} for i in issues[:5]]
+    """Listet offene Issues auf (max. 5)."""
+    try:
+        if "/" not in repo_name:
+            user = gh.get_user().login
+            repo_name = f"{user}/{repo_name}"
 
-def list_user_repos(username: str = "SchubideiCroissant"):
-    user = gh.get_user(username) if username else gh.get_user()
-    repos = list(user.get_repos())
-    repos.sort(key=lambda r: r.updated_at, reverse=True)
+        repo = gh.get_repo(repo_name)
+        issues = repo.get_issues(state="open")
 
-    return [{
-        "name": repo.name,
-        "language": repo.language or "Unbekannt",
-        "stars": repo.stargazers_count,
-        "forks": repo.forks_count,
-        "visibility": "privat" if repo.private else "öffentlich",
-        "last_update": repo.updated_at.strftime("%d.%m.%Y %H:%M:%S"),
-    } for repo in repos]
+        return [{"titel": i.title, "erstellt_von": i.user.login} for i in issues[:5]]
+
+    except GithubException as e:
+        return {"fehler": f"GitHub-Fehler: {e.data.get('message', str(e))}"}
+    except Exception as e:
+        return {"fehler": f"Allgemeiner Fehler: {e}"}
+
+
+def list_user_repos(username: str = None):
+    """Listet alle Repositories eines Users (sortiert nach letztem Update)."""
+    try:
+        user = gh.get_user(username) if username else gh.get_user()
+        repos = list(user.get_repos())
+        repos = sorted(repos, key=lambda r: r.updated_at, reverse=True)
+
+        return [{
+            "name": repo.name,
+            "language": repo.language or "Unbekannt",
+            "stars": repo.stargazers_count,
+            "forks": repo.forks_count,
+            "visibility": "privat" if repo.private else "öffentlich",
+            "last_update": repo.updated_at.strftime("%d.%m.%Y %H:%M:%S"),
+        } for repo in repos]
+
+    except GithubException as e:
+        return {"fehler": f"GitHub-Fehler: {e.data.get('message', str(e))}"}
+    except Exception as e:
+        return {"fehler": f"Allgemeiner Fehler: {e}"}
 
 
 def format_result(data):
