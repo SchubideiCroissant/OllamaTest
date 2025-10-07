@@ -12,8 +12,26 @@ if not token:
 gh = Github(token)
 
 def get_repo_stats(repo_name: str):
-    """Liefert allgemeine Informationen zu einem Repository."""
+    """Liefert allgemeine Informationen zu einem Repository, inklusive Commits."""
+    # Falls kein User Input dann Token-User nehmen
+    if "/" not in repo_name:
+        user = gh.get_user().login
+        repo_name = f"{user}/{repo_name}"
+
     repo = gh.get_repo(repo_name)
+
+    # Commits abrufen (kann bei großen Repos dauern!)
+    commits = list(repo.get_commits()[:2])  # nur die letzten 2 laden
+    total_commits = repo.get_commits().totalCount  # Gesamtzahl der Commits
+
+    last_commits = []
+    for c in commits:
+        last_commits.append({
+            "nachricht": c.commit.message.split("\n")[0],  # erste Zeile der Nachricht
+            "autor": c.commit.author.name if c.commit.author else "Unbekannt",
+            "datum": c.commit.author.date.strftime("%d.%m.%Y %H:%M:%S") if c.commit.author else "?"
+        })
+
     return {
         "name": repo.full_name,
         "beschreibung": repo.description,
@@ -21,8 +39,11 @@ def get_repo_stats(repo_name: str):
         "forks": repo.forks_count,
         "issues_offen": repo.open_issues_count,
         "sprache": repo.language,
-        "letztes_update": repo.updated_at.strftime("%d.%m.%Y %H:%M:%S")
+        "commits_gesamt": total_commits,
+        "letztes_update": repo.updated_at.strftime("%d.%m.%Y %H:%M:%S"),
+        "letzte_commits": last_commits
     }
+
 
 def get_last_commit(repo_name: str):
     """Gibt die Nachricht und das Datum des letzten Commits zurück."""
@@ -74,12 +95,36 @@ def get_repo_details(repo_name: str):
     }
 
 def format_result(data):
-    """Hilfsfunktion für lesbare Ausgabe."""
+    """Formatiert Rückgaben der GitHub-Tools für die Terminal-Ausgabe."""
     if isinstance(data, dict):
-        return "\n".join(f"{k.capitalize()}: {v}" for k, v in data.items())
+        # Einzelnes Objekt (z. B. get_repo_stats)
+        return "\n".join([f"{k.capitalize()}: {v}" for k, v in data.items()])
+
     elif isinstance(data, list):
-        return "\n".join([f"- {i['titel']} (von {i['erstellt_von']})" for i in data])
+        if not data:
+            return "Keine Daten gefunden."
+
+        # Prüfen, ob das Ergebnis aus list_user_repos stammt
+        if "letztes_update" in data[0]:
+            return "\n".join([
+                f"- {i['name']} | Sterne: {i['sterne']} | Forks: {i['forks']} | "
+                f"Sprache: {i['sprache']} | Letztes Update: {i['letztes_update']}"
+                for i in data
+            ])
+
+        # Prüfen, ob es Issues sind
+        elif "titel" in data[0]:
+            return "\n".join([
+                f"- {i['titel']} (von {i['erstellt_von']})"
+                for i in data
+            ])
+
+        # Fallback für unbekannte Listen
+        else:
+            return "\n".join(map(str, data))
+
     else:
         return str(data)
+
 
 

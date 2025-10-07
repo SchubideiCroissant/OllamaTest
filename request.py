@@ -193,9 +193,11 @@ def ask(question: str):
 
     # --- 1. Prüfen, ob Tool-Aufruf sinnvoll ist ---
     if any(x in q_lower for x in ["repo", "github", "commit", "issue", "fork", "sterne", "pull request"]):
+        print("Tool-Mode")
         return ask_with_tools(question)
 
     # --- 2. Standard: RAG-System ---
+    print("Rag-Mode")
     return ask_rag(question)
 
 def ask_with_tools(question: str):
