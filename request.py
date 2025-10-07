@@ -192,7 +192,7 @@ def ask(question: str):
     q_lower = question.lower()
 
     # --- 1. Prüfen, ob Tool-Aufruf sinnvoll ist ---
-    if any(x in q_lower for x in ["repo", "github", "commit", "issue", "fork", "sterne", "pull request"]):
+    if any(x in q_lower for x in ["git","repo", "github", "commit", "issue", "fork", "sterne", "pull request"]):
         print("Tool-Mode")
         return ask_with_tools(question)
 
@@ -209,7 +209,8 @@ def ask_with_tools(question: str):
                         Verfügbare Tools:
                         {tool_descriptions}
 
-                        Wenn du eines dieser Tools verwenden möchtest, antworte **nur** mit JSON im Format:
+                        "enn du erkennst, dass eine der Funktionen gemeint ist(auch bei Tippfehlern oder ähnlichen Formulierungen),
+                        antworte **nur** mit JSON im Format:
                         {{
                         "action": "<Funktionsname>",
                         "arguments": {{ "<parameter>": "<wert>", ... }}
@@ -237,6 +238,7 @@ def ask_with_tools(question: str):
 
         if action in TOOLS:
             func = TOOLS[action]["function"]
+            print(f"\n[Tool-Auswahl] Modell ruft auf: {action} mit Argumenten: {args}\n")
             result = func(**args)
             print("\n--- Ergebnis (Tool) ---\n")
             print(format_output(result))

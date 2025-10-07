@@ -47,6 +47,11 @@ def get_repo_stats(repo_name: str):
 
 def get_last_commit(repo_name: str):
     """Gibt die Nachricht und das Datum des letzten Commits zurück."""
+    # Falls kein User Input dann Token-User nehmen
+    if "/" not in repo_name:
+        user = gh.get_user().login
+        repo_name = f"{user}/{repo_name}"
+
     repo = gh.get_repo(repo_name)
     commit = repo.get_commits()[0]
     return {
@@ -75,24 +80,6 @@ def list_user_repos(username: str = "SchubideiCroissant"):
         "last_update": repo.updated_at.strftime("%d.%m.%Y %H:%M:%S"),
     } for repo in repos]
 
-def get_repo_details(repo_name: str):
-    repo = gh.get_repo(repo_name)
-    branches = list(repo.get_branches())
-    commits = repo.get_commits().totalCount if hasattr(repo.get_commits(), "totalCount") else "?"
-    topics = repo.get_topics()
-
-    return {
-        "name": repo.full_name,
-        "description": repo.description or "",
-        "language": repo.language or "Unbekannt",
-        "stars": repo.stargazers_count,
-        "forks": repo.forks_count,
-        "branches": len(branches),
-        "commits": commits,
-        "topics": topics,
-        "visibility": "privat" if repo.private else "öffentlich",
-        "last_push": repo.pushed_at.strftime("%d.%m.%Y %H:%M:%S"),
-    }
 
 def format_result(data):
     """Formatiert Rückgaben der GitHub-Tools für die Terminal-Ausgabe."""

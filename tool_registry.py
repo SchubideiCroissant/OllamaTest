@@ -2,10 +2,6 @@ from github_tool import*
 import inspect
 
 TOOLS = {
-    "get_repo_stats": {
-        "function": get_repo_details,
-        "description": "Gibt detaillierte Informationen zu einem bestimmten GitHub-Repository zurück (z. B. Sprache, Sterne, Forks, Commits, Branches, letzte Änderung)."
-    },
     "list_user_repos": {
         "function": list_user_repos,
         "description": "Listet alle Repositories eines Benutzers mit Basisstatistiken (Sprache, Sterne, Forks, letzte Aktualisierung)."
