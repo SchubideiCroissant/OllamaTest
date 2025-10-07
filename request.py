@@ -166,14 +166,29 @@ def show_chunks(limit = 1000):
     except Exception as e:
         print(f"Fehler beim Laden der Chunks: {e}")
 
+def filter_chunks(question):
+    where_filter = {}
+    q_lower = question.lower()
+
+    # Automatische Dokumentauswahl
+    if "pdf" in q_lower:
+        where_filter = {"type": {"$eq": "pdf"}}
+    elif "code" in q_lower:
+        where_filter = {"type": {"$eq": "code"}}
+    else:
+        where_filter = {}  # keine Einschränkung → alle durchsuchen
+    
+    return where_filter
 # ------------------------------
 # FRAGEN AN MODEL
 # ------------------------------
 def ask(question):
     """Durchsucht die DB und fragt Model."""
+
     results = collection.query(
         query_texts=[question],
         n_results=6,
+        where=filter_chunks(question),
         include=["documents", "metadatas"]
     )
 
