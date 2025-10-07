@@ -66,31 +66,84 @@ def load_code_text(folder):
 def index_files():
     docs = []
     ids = []
+    metadatas = []
 
-    # PDFs
+    # PDFs – seitenweises Chunking
     if os.path.isdir(PDF_DIR):
         for file in os.listdir(PDF_DIR):
             if file.lower().endswith(".pdf"):
                 path = os.path.join(PDF_DIR, file)
                 print(f"Lade PDF: {file}")
-                text = load_pdf_text(path)
-                if text:
-                    docs.append(text)
-                    ids.append(f"pdf_{file}")
+                reader = PdfReader(path)
 
-    # Code
+                for i, page in enumerate(reader.pages, start=1):
+                    try:
+                        text = page.extract_text() or ""
+                    except Exception:
+                        text = ""
+
+                    if text.strip():
+                        docs.append(text.strip())
+                        ids.append(f"pdf_{file}_p{i}")
+                        metadatas.append({
+                            "filename": file,
+                            "page": i,
+                            "type": "pdf"
+                        })
+
+    # Code – alles in einem Block, aber mit Metadaten
     if os.path.isdir(CODE_DIR):
         print(f"Lade Code aus {CODE_DIR}")
-        code_text = load_code_text(CODE_DIR)
-        if code_text:
-            docs.append(code_text)
-            ids.append("code_data")
+        for root, _, files in os.walk(CODE_DIR):
+            for file in files:
+                if file.endswith((".c", ".cpp", ".h", ".py")):
+                    path = os.path.join(root, file)
+                    try:
+                        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                            text = f.read().strip()
+                        if text:
+                            docs.append(text)
+                            ids.append(f"code_{file}")
+                            metadatas.append({
+                                "filename": file,
+                                "type": "code"
+                            })
+                    except Exception as e:
+                        print(f"Fehler beim Laden von {file}: {e}")
 
+    # Speichern in Chroma
     if docs:
-        collection.add(documents=docs, ids=ids)
-        print(f"{len(docs)} Dateien zur Datenbank hinzugefügt.")
+        print(f"{len(docs)} Chunks werden hinzugefügt ...")
+        collection.add(documents=docs, ids=ids, metadatas=metadatas)
+        print("Datenbank erfolgreich aktualisiert.")
     else:
         print("Keine neuen Dateien gefunden.")
+def show_chunks(limit=10):
+    """Zeigt gespeicherte Chunks in der Chroma-Datenbank (mit Metadaten und Vorschau)."""
+    print("\n=== Gespeicherte Chunks ===")
+    try:
+        # Alle Daten abrufen
+        data = collection.get(include=["metadatas", "documents"])
+        ids = data.get("ids", [])
+        print(f"Gesamt: {len(ids)} Chunks in der Collection '{collection.name}'\n")
+
+        for i, (cid, meta, doc) in enumerate(zip(ids, data["metadatas"], data["documents"])):
+            print(f"[{i+1}] ID: {cid}")
+            if meta:
+                print(f"   Datei: {meta.get('filename', '?')}")
+                if meta.get("page"):
+                    print(f"   Seite: {meta['page']}")
+                print(f"   Typ: {meta.get('type', '?')}")
+            snippet = doc[:200].replace("\n", " ") + ("..." if len(doc) > 200 else "")
+            print(f"   Inhalt: {snippet}\n")
+
+            if i + 1 >= limit:
+                print(f"--- Ausgabe auf {limit} Chunks begrenzt ---")
+                break
+
+    except Exception as e:
+        print(f"Fehler beim Laden der Chunks: {e}")
+
 
 # ------------------------------
 # FRAGEN AN MODEL
@@ -150,10 +203,12 @@ def ask(question):
     if buf:
         print(textwrap.fill(buf, width=term_width))
 
+
 if __name__ == "__main__":
     print("=== Lokale Knowledge Base ===")
     print("Erstelle bzw. lade Datenbank...")
     index_files()
+    show_chunks()
 
     while True:
         frage = input("\nFrage an deine Knowledge Base ('exit' zum Beenden): ")
