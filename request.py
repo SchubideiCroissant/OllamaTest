@@ -135,8 +135,7 @@ def add_new_documents(collection, docs, ids, metadatas):
         metadatas=new_metas,
         embeddings=embeddings
     )
-    meta = collection.metadata
-    print(meta)
+    print(collection.metadata)
     print("Datenbank erfolgreich aktualisiert.")
 
 def process_pdf(path, chunk_size=500, overlap=100):
@@ -431,8 +430,10 @@ def ask_with_tools(question: str):
 def ask_rag(question: str):
     """Durchsucht die lokale Wissensdatenbank (Chroma) und fragt das Modell."""
 
+    q_emb = get_local_embeddings([question])[0]
+
     results = collection.query(
-        query_texts=[question],
+        query_embeddings=[q_emb],                   # <-- statt query_texts
         n_results=4,
         where=filter_chunks(question),
         include=["documents", "metadatas"]
