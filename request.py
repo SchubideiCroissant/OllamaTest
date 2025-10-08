@@ -21,12 +21,10 @@ import json
 import re
 from tool_registry import TOOLS, format_output, generate_tool_descriptions
 
-
 # ------------------------------
 # EINSTELLUNGEN
 # ------------------------------
 current_mode = "auto"
-
 
 PERSIST_DIR = Path("F:/Code/OllamaTest/chroma_db") # Speicherort der Datenbank
 PDF_DIR = "F:/Code/OllamaTest/docs"                 # Ordner für PDFs
@@ -156,7 +154,6 @@ def process_pdf(path, chunk_size=500, overlap=100):
     print(f"{len(chunks)} Chunks aus {base_name} erzeugt.")
     return docs, ids, metadatas
 
-
 def index_files(chunk_size=500, overlap=100):
     """Liest PDFs und Code-Dateien, chunkt und speichert sie in Chroma."""
     docs, ids, metadatas = [], [], []
@@ -186,31 +183,67 @@ def index_files(chunk_size=500, overlap=100):
     else:
         print("Keine Dateien gefunden.")
 
-def show_chunks(limit = 1000):
+import os
+
+import os
+
+def show_chunks(limit=1000):
     """Zeigt gespeicherte Chunks in der Chroma-Datenbank (mit Metadaten und Vorschau)."""
     print("\n=== Gespeicherte Chunks ===")
     try:
-        # Alle Daten abrufen
+        # Gesamtzahl abrufen (neuere Versionen unterstützen .count())
+        try:
+            total = collection.count()
+        except Exception:
+            total = None
+
+        # Alle Daten abrufen (ohne 'ids' im include!)
         data = collection.get(include=["metadatas", "documents"])
         ids = data.get("ids", [])
-        print(f"Gesamt: {len(ids)} Chunks in der Collection '{collection.name}'\n")
+        metas = data.get("metadatas", [])
+        docs  = data.get("documents", [])
 
-        for i, (cid, meta, doc) in enumerate(zip(ids, data["metadatas"], data["documents"])):
-            print(f"[{i+1}] ID: {cid}")
-            if meta:
-                print(f"   Datei: {meta.get('filename', '?')}")
-                if meta.get("page"):
-                    print(f"   Seite: {meta['page']}")
-                print(f"   Typ: {meta.get('type', '?')}")
-            snippet = doc[:200].replace("\n", " ") + ("..." if len(doc) > 200 else "")
-            print(f"   Inhalt: {snippet}\n")
+        if total:
+            print(f"Gesamt: {total} Chunks in Collection '{collection.name}' (zeige max. {limit})\n")
+        else:
+            print(f"Gesamt: {len(ids)} Chunks in Collection '{collection.name}'\n")
 
-            if i + 1 >= limit:
+        # Iteration über limit
+        for i, (cid, meta, doc) in enumerate(zip(ids, metas, docs)):
+            if i >= limit:
                 print(f"--- Ausgabe auf {limit} Chunks begrenzt ---")
                 break
 
+            meta = meta or {}
+
+            # Einheitliche Metadaten auslesen
+            filename = meta.get("filename") or meta.get("source")
+            if not filename and meta.get("path"):
+                filename = os.path.basename(meta["path"])
+            filename = filename or "?"
+
+            pages = meta.get("page") or meta.get("pages")
+            typ = meta.get("type")
+            if not typ and filename and "." in filename:
+                typ = os.path.splitext(filename)[1].lstrip(".").lower()
+
+            # Ausgabe
+            print(f"[{i+1}] ID: {cid}")
+            print(f"   Datei: {filename}")
+            if pages:
+                print(f"   Seiten: {pages}")
+            if typ:
+                print(f"   Typ: {typ}")
+
+            snippet = (doc or "").replace("\n", " ")
+            if len(snippet) > 200:
+                snippet = snippet[:200] + "..."
+            print(f"   Inhalt: {snippet}\n")
+
     except Exception as e:
         print(f"Fehler beim Laden der Chunks: {e}")
+
+
 
 def filter_chunks(question):
     where_filter = {}
@@ -225,9 +258,6 @@ def filter_chunks(question):
         where_filter = None  # keine Einschränkung → alle durchsuchen
     
     return where_filter
-# ------------------------------
-# FRAGEN AN MODEL
-# ------------------------------
 
 def handle_command(cmd: str):
     global current_mode
