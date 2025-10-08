@@ -13,6 +13,8 @@ from pathlib import Path
 import os, sys
 from chromadb import PersistentClient
 from chromadb.config import Settings
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from nomic import embed
 from PyPDF2 import PdfReader
 import ollama
 import json
@@ -62,32 +64,6 @@ def split_text(text, size=500, overlap=100):
         start += size - overlap
     return chunks
 
-def process_pdf(file_path, chunk_size, overlap):
-    """Extrahiert Text aus einer PDF und chunkt ihn."""
-    from PyPDF2 import PdfReader
-    docs, ids, metas = [], [], []
-    reader = PdfReader(file_path)
-    filename = os.path.basename(file_path)
-
-    for page_num, page in enumerate(reader.pages, start=1):
-        try:
-            text = page.extract_text() or ""
-        except Exception:
-            text = ""
-
-        if text.strip():
-            page_chunks = split_text(text, chunk_size, overlap)
-            for j, chunk in enumerate(page_chunks):
-                docs.append(chunk)
-                ids.append(f"pdf_{filename}_p{page_num}_c{j}")
-                metas.append({
-                    "filename": filename,
-                    "page": page_num,
-                    "chunk": j,
-                    "type": "pdf"
-                })
-    return docs, ids, metas
-
 def process_code(file_path, chunk_size, overlap):
     """Liest Code-Dateien ein und chunkt sie."""
     docs, ids, metas = [], [], []
@@ -129,6 +105,57 @@ def add_new_documents(collection, docs, ids, metadatas):
         print("Datenbank erfolgreich aktualisiert.")
     else:
         print("Keine neuen Chunks gefunden.")
+
+def process_pdf(path, chunk_size=500, overlap=100):
+    """Liest eine PDF vollständig ein, chunked seitenübergreifend und behält Seiteninfos."""
+    reader = PdfReader(path)
+
+    full_text = ""
+    page_map = []  # (start_char, end_char, page_number)
+
+    # 1. Gesamten Text + Seitenbereiche erfassen
+    char_index = 0
+    for page_num, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ""
+        start = char_index
+        end = char_index + len(text)
+        page_map.append((start, end, page_num))
+        full_text += text + "\n"
+        char_index = end + 1
+
+    # 2. Mit RecursiveCharacterTextSplitter aufteilen
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap,
+        length_function=len,
+        separators=["\n\n", "\n", ".", " ", ""]
+    )
+    chunks = splitter.split_text(full_text)
+
+    # 3. IDs, Metadaten und Dokumente erzeugen
+    docs, ids, metadatas = [], [], []
+    base_name = os.path.basename(path)
+
+    for idx, chunk in enumerate(chunks):
+        # Finde zugehörige Seiten basierend auf Characterposition
+        start_char = full_text.find(chunk)
+        end_char = start_char + len(chunk)
+        pages_in_chunk = [
+            p for (s, e, p) in page_map if not (e < start_char or s > end_char)
+        ]
+        page_info = f"{min(pages_in_chunk)}-{max(pages_in_chunk)}" if len(pages_in_chunk) > 1 else str(pages_in_chunk[0])
+
+        docs.append(chunk)
+        ids.append(f"{base_name}_chunk_{idx}")
+        metadatas.append({
+            "source": base_name,
+            "pages": page_info,
+            "path": path
+        })
+
+    print(f"{len(chunks)} Chunks aus {base_name} erzeugt.")
+    return docs, ids, metadatas
+
 
 def index_files(chunk_size=500, overlap=100):
     """Liest PDFs und Code-Dateien, chunkt und speichert sie in Chroma."""
@@ -244,7 +271,6 @@ def handle_command(cmd: str):
                 return ask_with_tools(cmd)
 
 
-
 def extract_json(text: str):
     """Versucht, eingebettetes JSON aus einem Text zu extrahieren.
     Gibt den JSON-String zurück oder wirft eine Exception, wenn keins gefunden wird."""
@@ -261,7 +287,6 @@ def extract_json(text: str):
         return json_str
     except json.JSONDecodeError as e:
         raise ValueError(f"Ungültiges JSON im Text gefunden: {e}")
-
 
 def ask_with_tools(question: str):
     """Verarbeitet Fragen, die Tools (z. B. GitHub) benötigen."""
@@ -314,13 +339,11 @@ def ask_with_tools(question: str):
             answer_prompt = f"""
                 Du bist jetzt im Antwortmodus.
 
-                Nutze das folgende Tool-Ergebnis als Grundlage, um die ursprüngliche Frage zu beantworten.
-                Du darfst die Informationen erläutern, zusammenfassen oder interpretieren,
-                solange sie aus dem Tool-Ergebnis stammen.
+                Analysiere und fasse das Tool-Ergebnis nur anhand der angezeigten Daten zusammen.
+                Verwende keine eigenen Zusatzinformationen oder externes Wissen.
 
                 Antworte auf Deutsch in vollständigen, gut lesbaren Sätzen.
-                Wenn es sich um viele Daten handelt, gib eine kurze Übersicht oder ein paar Beispiele,
-                statt alles aufzulisten. Schreibe lieber einen kleinen Absatz als nur einen Satz.
+                Wenn es sich um viele Daten handelt, kannst du sie analysieren wenn die Frage danach fragt.
                 --- TOOL-ERGEBNIS ---
                 {result_text}
                 --- ENDE ---
@@ -417,7 +440,7 @@ if __name__ == "__main__":
     print("Standard Rag oderr Tool-Use mit: repo, github, commit, issue, fork, sterne, pull request")
     print("Erstelle bzw. lade Datenbank...")
     index_files()
-    #show_chunks()
+    show_chunks()
 
     while True:
         frage = input(f"\n[{current_mode.upper()}] Frage('help' für Hilfe): ")
