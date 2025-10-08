@@ -58,36 +58,64 @@ Verfügbare Befehle:
   exit   → Beendet das Programm
     """)
 
-def split_text(text, size=500, overlap=100):
-    """Teilt Text in überlappende Chunks."""
-    text = text.replace("\n", " ").strip()
+def split_code_text(text: str, size: int = 500, overlap: int = 100):
+    """Teilt Code in sinnvolle, überlappende Chunks, ohne mitten in Zeilen zu schneiden."""
+    lines = text.splitlines()
     chunks = []
-    start = 0
-    while start < len(text):
-        end = start + size
-        chunks.append(text[start:end])
-        start += size - overlap
-    return chunks
+    current_chunk = []
+    current_length = 0
 
-def process_code(file_path, chunk_size, overlap):
-    """Liest Code-Dateien ein und chunkt sie."""
+    for line in lines:
+        line = line.rstrip()  # Einrückung bleibt erhalten
+        line_len = len(line) + 1  # +1 für Zeilenumbruch
+        # Prüfen, ob Zeile noch in den aktuellen Chunk passt
+        if current_length + line_len > size and current_chunk:
+            chunks.append("\n".join(current_chunk))
+            # Überlappung: letzte N Zeilen des vorherigen Chunks übernehmen
+            overlap_lines = max(1, int(overlap / (line_len or 1)))
+            current_chunk = current_chunk[-overlap_lines:]
+            current_length = sum(len(l) + 1 for l in current_chunk)
+        current_chunk.append(line)
+        current_length += line_len
+
+    # Rest anhängen
+    if current_chunk:
+        chunks.append("\n".join(current_chunk))
+
+    # Leere oder sehr kurze Chunks rausfiltern
+    cleaned = [c.strip() for c in chunks if len(c.strip()) > 10]
+    return cleaned
+
+def process_code(file_path: str, chunk_size: int = 500, overlap: int = 100):
+    """Liest Code-Dateien ein, chunkt sie intelligent und erstellt Metadaten."""
     docs, ids, metas = [], [], []
     filename = os.path.basename(file_path)
+
     try:
         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
             text = f.read().strip()
-        if text:
-            chunks = split_text(text, chunk_size, overlap)
-            for j, chunk in enumerate(chunks):
-                docs.append(chunk)
-                ids.append(f"code_{filename}_c{j}")
-                metas.append({
-                    "filename": filename,
-                    "chunk": j,
-                    "type": "code"
-                })
+
+        if not text:
+            print(f"Datei {filename} ist leer oder konnte nicht gelesen werden.")
+            return docs, ids, metas
+
+        chunks = split_code_text(text, size=chunk_size, overlap=overlap)
+
+        for j, chunk in enumerate(chunks):
+            docs.append(chunk)
+            ids.append(f"code_{filename}_chunk{j}")
+            metas.append({
+                "filename": filename,
+                "chunk_index": j,
+                "path": file_path,
+                "type": "code",
+                "lines": len(chunk.splitlines())
+            })
+
+        print(f"{len(chunks)} Chunks aus {filename} erzeugt.")
     except Exception as e:
-        print(f"Fehler beim Laden von {filename}: {e}")
+        print(f"Fehler beim Verarbeiten von {filename}: {e}")
+
     return docs, ids, metas
 
 def get_local_embeddings(texts, model="nomic-embed-text"):
@@ -273,6 +301,7 @@ def show_chunks(limit=1000):
     except Exception as e:
         print(f"Fehler beim Laden der Chunks: {e}")
 
+"""
 def filter_chunks(question):
     where_filter = {}
     q_lower = question.lower()
@@ -286,7 +315,7 @@ def filter_chunks(question):
         where_filter = None  # keine Einschränkung → alle durchsuchen
     
     return where_filter
-
+"""
 def handle_command(cmd: str):
     global current_mode
 
@@ -435,7 +464,7 @@ def ask_rag(question: str):
     results = collection.query(
         query_embeddings=[q_emb],                   # <-- statt query_texts
         n_results=4,
-        where=filter_chunks(question),
+        #where=filter_chunks(question),
         include=["documents", "metadatas"]
     )
 
@@ -500,7 +529,7 @@ if __name__ == "__main__":
     print("Standard Rag oderr Tool-Use mit: repo, github, commit, issue, fork, sterne, pull request")
     print("Erstelle bzw. lade Datenbank...")
     index_files()
-    #show_chunks()
+    show_chunks()
 
     while True:
         frage = input(f"\n[{current_mode.upper()}] Frage('help' für Hilfe): ")
