@@ -14,7 +14,7 @@ import os, sys
 from chromadb import PersistentClient
 from chromadb.config import Settings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from nomic import embed
+import requests
 from PyPDF2 import PdfReader
 import ollama
 import json
@@ -35,7 +35,14 @@ MODEL_NAME = "llama3"                               # Ollama-Modell, Ilama für 
 # CHROMA INITIALISIEREN
 # ------------------------------
 client = PersistentClient(path=PERSIST_DIR)
-collection = client.get_or_create_collection("local_knowledge")
+collection = client.get_or_create_collection("local_knowledge", 
+        metadata={
+        "embedding_model": "nomic-embed-text-v1.5",
+        "embedding_dim": 384,
+        "created": "2025-10-08",
+        "description": "RAG-Datenbank mit GPU-Embeddings von Ollama"
+        }
+    )
 print(f"Datenbankpfad: {PERSIST_DIR}")
 print(f"Vorhandene Collections: {client.list_collections()}")
 
@@ -83,8 +90,22 @@ def process_code(file_path, chunk_size, overlap):
         print(f"Fehler beim Laden von {filename}: {e}")
     return docs, ids, metas
 
+def get_local_embeddings(texts, model="nomic-embed-text"):
+    """Holt Embeddings vom lokalen Ollama-Server."""
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/embed",
+            json={"model": model, "input": texts}
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["embeddings"]
+    except Exception as e:
+        print(f"Fehler beim lokalen Embedding-Request: {e}")
+        return []
+
 def add_new_documents(collection, docs, ids, metadatas):
-    """Fügt nur neue Dokumente zur Datenbank hinzu."""
+    """Fügt neue Dokumente hinzu (lokal via Ollama-Embeddings)."""
     print(f"{len(docs)} Chunks vorbereitet. Überprüfe bestehende Datenbankeinträge ...")
 
     existing_data = collection.get()
@@ -97,12 +118,26 @@ def add_new_documents(collection, docs, ids, metadatas):
             new_ids.append(i)
             new_metas.append(m)
 
-    if new_docs:
-        print(f"{len(new_docs)} neue Chunks werden hinzugefügt ...")
-        collection.add(documents=new_docs, ids=new_ids, metadatas=new_metas)
-        print("Datenbank erfolgreich aktualisiert.")
-    else:
+    if not new_docs:
         print("Keine neuen Chunks gefunden.")
+        return
+
+    print(f"{len(new_docs)} neue Chunks werden hinzugefügt ...")
+
+    embeddings = get_local_embeddings(new_docs)
+    if not embeddings:
+        print("Keine Embeddings erhalten – Einfügen abgebrochen.")
+        return
+
+    collection.add(
+        documents=new_docs,
+        ids=new_ids,
+        metadatas=new_metas,
+        embeddings=embeddings
+    )
+    meta = collection.metadata
+    print(meta)
+    print("Datenbank erfolgreich aktualisiert.")
 
 def process_pdf(path, chunk_size=500, overlap=100):
     """Liest eine PDF vollständig ein, chunked seitenübergreifend und behält Seiteninfos."""
@@ -183,10 +218,6 @@ def index_files(chunk_size=500, overlap=100):
     else:
         print("Keine Dateien gefunden.")
 
-import os
-
-import os
-
 def show_chunks(limit=1000):
     """Zeigt gespeicherte Chunks in der Chroma-Datenbank (mit Metadaten und Vorschau)."""
     print("\n=== Gespeicherte Chunks ===")
@@ -242,8 +273,6 @@ def show_chunks(limit=1000):
 
     except Exception as e:
         print(f"Fehler beim Laden der Chunks: {e}")
-
-
 
 def filter_chunks(question):
     where_filter = {}
@@ -470,7 +499,7 @@ if __name__ == "__main__":
     print("Standard Rag oderr Tool-Use mit: repo, github, commit, issue, fork, sterne, pull request")
     print("Erstelle bzw. lade Datenbank...")
     index_files()
-    show_chunks()
+    #show_chunks()
 
     while True:
         frage = input(f"\n[{current_mode.upper()}] Frage('help' für Hilfe): ")
