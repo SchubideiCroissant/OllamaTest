@@ -15,3 +15,5 @@ Cuda installieren für GPU Unterstützung:
 ```nvidia-smi```
 Python-Setup:
 ```install chromadb ollama PyPDF2```
+
+Autor: Ollama Knowledge Base Team
