@@ -10,7 +10,7 @@
 
 import textwrap, shutil
 from pathlib import Path
-import os
+import os, sys
 from chromadb import PersistentClient
 from chromadb.config import Settings
 from PyPDF2 import PdfReader
@@ -23,6 +23,9 @@ from tool_registry import TOOLS, format_output, generate_tool_descriptions
 # ------------------------------
 # EINSTELLUNGEN
 # ------------------------------
+current_mode = "auto"
+
+
 PERSIST_DIR = Path("F:/Code/OllamaTest/chroma_db") # Speicherort der Datenbank
 PDF_DIR = "F:/Code/OllamaTest/docs"                 # Ordner für PDFs
 CODE_DIR = "F:/Code/OllamaTest/code"                 # Ordner für Code-Dateien
@@ -36,6 +39,17 @@ collection = client.get_or_create_collection("local_knowledge")
 print(f"Datenbankpfad: {PERSIST_DIR}")
 print(f"Vorhandene Collections: {client.list_collections()}")
 
+
+def print_help():
+    print("""
+Verfügbare Befehle:
+  tool   → Schaltet in den Tool-Modus (GitHub-Tools)
+  rag    → Schaltet in den Wissensdatenbank-Modus (Chroma)
+  auto   → Automatische Erkennung (Standard)
+  status → Zeigt den aktuellen Modus
+  help   → Zeigt diese Hilfe
+  exit   → Beendet das Programm
+    """)
 
 def split_text(text, size=500, overlap=100):
     """Teilt Text in überlappende Chunks."""
@@ -188,22 +202,48 @@ def filter_chunks(question):
 # FRAGEN AN MODEL
 # ------------------------------
 
-def ask(question: str):
-    """Routet zwischen Tool- und RAG-System je nach Eingabeinhalt."""
+def handle_command(cmd: str):
+    global current_mode
 
-    q_lower = question.lower()
+    cmd = cmd.strip().lower()
 
-    # --- 1. Prüfen, ob Tool-Aufruf sinnvoll ist ---
-    if any(x in q_lower for x in ["git","repo", "github", "commit", "issue", "fork", "sterne", "pull request"]):
-        print("Tool-Mode")
-        return ask_with_tools(question)
+    if cmd == "tool":
+        current_mode = "tool"
+        print("Modus geändert zu: Tool")
+    elif cmd == "rag":
+        current_mode = "rag"
+        print("Modus geändert zu: Wissensdatenbank (RAG)")
+    elif cmd == "auto":
+        current_mode = "auto"
+        print("Modus geändert zu: Automatisch")
+    elif cmd == "status":
+        print(f"Aktueller Modus: {current_mode}")
+    elif cmd == "help":
+        print_help()
+    elif cmd in ("exit", "quit"):
+        print("Programm wird beendet.")
+        sys.exit(0)
+    else:
+        # An dieser Stelle wird dein bisheriger Code eingebunden:
+        if current_mode == "tool":
+            print(f"[TOOL] Anfrage: {cmd}")
+            ask_with_tools(cmd)
+            
+        elif current_mode == "rag":
+            print(f"[RAG] Anfrage: {cmd}")
+            ask_rag(cmd)
 
-    # --- 2. Standard: RAG-System ---
-    print("Rag-Mode")
-    return ask_rag(question)
+        else:  # auto
+            print(f"[AUTO] Anfrage: {cmd}")
+            if any(x in cmd for x in ["git","github","repo","repository", "commit", "issue", "fork", "sterne", "pull request"]):
+                print("Tool-Mode")
+                return ask_rag(cmd)
 
-import re
-import json
+            else:
+                print("Rag-Mode")
+                return ask_with_tools(cmd)
+
+
 
 def extract_json(text: str):
     """Versucht, eingebettetes JSON aus einem Text zu extrahieren.
@@ -242,7 +282,7 @@ def ask_with_tools(question: str):
                         - Für `get_repo_stats`: {{"repo_name": "repo_name"}}
                         - Für `list_user_repos`: {{"username": "user"}}
                         Antworte nur mit JSON, ohne weiteren Text, Markdown oder Erklärung.
-                        Wenn kein passendes Tool nötig ist, gib normalen Text zurück.
+                        Wenn kein passendes Tool zu finden ist, gib normalen Text zurück.
                         """
     
 
@@ -380,7 +420,6 @@ if __name__ == "__main__":
     #show_chunks()
 
     while True:
-        frage = input("\nFrage('exit' zum Beenden): ")
-        if frage.lower() in ("exit", "quit"):
-            break
-        ask(frage)
+        frage = input(f"\n[{current_mode.upper()}] Frage('help' für Hilfe): ")
+        handle_command(frage)
+        
