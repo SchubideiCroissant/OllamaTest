@@ -96,7 +96,7 @@ def process_code(file_path: str, chunk_size: int = 500, overlap: int = 100):
             text = f.read().strip()
 
         if not text:
-            print(f"Datei {filename} ist leer oder konnte nicht gelesen werden.")
+            print(f"Datei {filename} ist leer oder konnte nicht gelesen werden")
             return docs, ids, metas
 
         chunks = split_code_text(text, size=chunk_size, overlap=overlap)
