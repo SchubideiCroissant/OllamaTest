@@ -34,3 +34,4 @@ def generate_tool_descriptions(tools_dict):
 def format_output(data):
     return format_result(data)
 
+print(generate_tool_descriptions(TOOLS))

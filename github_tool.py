@@ -11,16 +11,14 @@ if not token:
 
 gh = Github(token)
 
-def get_repo_stats(repo_name: str):
+def get_repo_stats(repo_name: str, username: str):
     """Liefert allgemeine Informationen zu einem Repository, inklusive Commits."""
     try:
         # Falls kein User-Input, Token-User nutzen
-        if "/" not in repo_name:
-            user = gh.get_user().login
-            repo_name = f"{user}/{repo_name}"
+        if username is None:
+            username = gh.get_user().login
 
-        repo = gh.get_repo(repo_name)
-
+        repo = gh.get_repo(username +"/"+repo_name)
         commits = list(repo.get_commits()[:2])  # nur die letzten 2
         total_commits = repo.get_commits().totalCount
 
@@ -50,14 +48,10 @@ def get_repo_stats(repo_name: str):
         return {"fehler": f"Allgemeiner Fehler: {e}"}
 
 
-def get_last_commit(repo_name: str):
+def get_last_commit(username: str, repo_name: str):
     """Gibt die Nachricht und das Datum des letzten Commits zurück."""
     try:
-        if "/" not in repo_name:
-            user = gh.get_user().login
-            repo_name = f"{user}/{repo_name}"
-
-        repo = gh.get_repo(repo_name)
+        repo = gh.get_repo(username+"/"+repo_name)
         commit = repo.get_commits()[0]
         return {
             "nachricht": commit.commit.message,
@@ -71,14 +65,10 @@ def get_last_commit(repo_name: str):
         return {"fehler": f"Allgemeiner Fehler: {e}"}
 
 
-def list_open_issues(repo_name: str):
+def list_open_issues(username:str, repo_name: str):
     """Listet offene Issues auf (max. 5)."""
     try:
-        if "/" not in repo_name:
-            user = gh.get_user().login
-            repo_name = f"{user}/{repo_name}"
-
-        repo = gh.get_repo(repo_name)
+        repo = gh.get_repo(username+"/"+repo_name)
         issues = repo.get_issues(state="open")
 
         return [{"titel": i.title, "erstellt_von": i.user.login} for i in issues[:5]]

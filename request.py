@@ -529,7 +529,7 @@ if __name__ == "__main__":
     print("Standard Rag oderr Tool-Use mit: repo, github, commit, issue, fork, sterne, pull request")
     print("Erstelle bzw. lade Datenbank...")
     index_files()
-    show_chunks()
+    #show_chunks()
 
     while True:
         frage = input(f"\n[{current_mode.upper()}] Frage('help' für Hilfe): ")
